@@ -7,30 +7,24 @@
 
 namespace hook
 {
-
-	// http://stackoverflow.com/questions/4840410/how-to-align-a-pointer-in-c
-	/* Align upwards -  arithmetic mode */
-	static inline ULONG_PTR AlignUp(ULONG_PTR stack, SIZE_T align)
+	static inline ULONG_PTR AlignUp(ULONG_PTR stack, SIZE_T align) 
 	{
-		assert(align > 0 && (align & (align - 1)) == 0); // Power of 2 
+		assert(align > 0 && (align & (align - 1)) == 0); // Power of 2
 		assert(stack != 0);
 
-		auto addr = stack;
-		if (addr % align != 0)
-			addr += align - (addr % align);
-		assert(addr >= stack);
-		return addr;
+		ULONG_PTR alignedAddr = (stack + (align - 1)) & ~(align - 1);
+		assert(alignedAddr >= stack);
+		return alignedAddr;
 	}
-	/* Align downwards - bit mask mode */
-	static inline ULONG_PTR AlignDown(ULONG_PTR stack, SIZE_T align)
+
+	static inline ULONG_PTR AlignDown(ULONG_PTR stack, SIZE_T align) 
 	{
-		assert(align > 0 && (align & (align - 1)) == 0); // Power of 2 
+		assert(align > 0 && (align & (align - 1)) == 0); // Ensure align is a power of 2
 		assert(stack != 0);
 
-		auto addr = stack;
-		addr &= -align; // Round down to align-byte boundary
-		assert(addr <= stack);
-		return addr;
+		ULONG_PTR alignedAddr = stack & ~(align - 1);
+		assert(alignedAddr <= stack);
+		return alignedAddr;
 	}
 
 	void* AllocateStubMemory(SIZE_T size)
