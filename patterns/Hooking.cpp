@@ -1,86 +1,74 @@
 #include "Hooking.h"
 #include <Windows.h>
+#include <cassert>
+#include <memory>
 
-
-/*
- * This file is part of the CitizenFX project - http://citizen.re/
- *
- * See LICENSE and MENTIONS in the root of the source tree for information
- * regarding licensing.
- * https://github.com/citizenfx/fivem/blob/master/code/client/citicore/PatternCache.cpp
- */
+#pragma warning(disable:4146)
 
 namespace hook
 {
-	LPVOID FindPrevFreeRegion(LPVOID pAddress, LPVOID pMinAddr, DWORD dwAllocationGranularity)
+	static inline ULONG_PTR AlignUp(ULONG_PTR stack, SIZE_T align) 
 	{
-		ULONG_PTR tryAddr = (ULONG_PTR)pAddress;
+		assert(align > 0 && (align & (align - 1)) == 0); // Power of 2
+		assert(stack != 0);
 
-		// Round down to the next allocation granularity.
-		tryAddr -= tryAddr % dwAllocationGranularity;
-
-		// Start from the previous allocation granularity multiply.
-		tryAddr -= dwAllocationGranularity;
-
-		while (tryAddr >= (ULONG_PTR)pMinAddr)
-		{
-			MEMORY_BASIC_INFORMATION mbi;
-			if (VirtualQuery((LPVOID)tryAddr, &mbi, sizeof(MEMORY_BASIC_INFORMATION)) ==
-				0)
-				break;
-
-			if (mbi.State == MEM_FREE)
-				return (LPVOID)tryAddr;
-
-			if ((ULONG_PTR)mbi.AllocationBase < dwAllocationGranularity)
-				break;
-
-			tryAddr = (ULONG_PTR)mbi.AllocationBase - dwAllocationGranularity;
-		}
-
-		return NULL;
+		ULONG_PTR alignedAddr = (stack + (align - 1)) & ~(align - 1);
+		assert(alignedAddr >= stack);
+		return alignedAddr;
 	}
 
-	// Size of each memory block. (= page size of VirtualAlloc)
-	const uint64_t MEMORY_BLOCK_SIZE = 0x1000;
-
-	// Max range for seeking a memory block. (= 1024MB)
-	const uint64_t MAX_MEMORY_RANGE = 0x40000000;
-
-	//code below is form @alexguirre https://github.com/alexguirre/gtav-WeaponLimitsAdjuster/blob/115ac5fe48ba62bb8c718b4d28ae34d4cf23cc6c/WeaponLimitsAdjuster/dllmain.cpp#L144
-
-	void* AllocateStubMemory(size_t size)
+	static inline ULONG_PTR AlignDown(ULONG_PTR stack, SIZE_T align) 
 	{
-		void* origin = GetModuleHandle(NULL);
+		assert(align > 0 && (align & (align - 1)) == 0); // Ensure align is a power of 2
+		assert(stack != 0);
+
+		ULONG_PTR alignedAddr = stack & ~(align - 1);
+		assert(alignedAddr <= stack);
+		return alignedAddr;
+	}
+
+	void* AllocateStubMemory(SIZE_T size)
+	{
+		// Max range for seeking a memory block. (= 1024MB)
+		constexpr uint64_t MAX_MEMORY_RANGE = 0x40000000;
+
+		void* origin = GetModuleHandle(nullptr);
 
 		ULONG_PTR minAddr;
 		ULONG_PTR maxAddr;
+
+		MEM_ADDRESS_REQUIREMENTS addressReqs = { 0 };
+		MEM_EXTENDED_PARAMETER param = { 0 };
 
 		SYSTEM_INFO si;
 		GetSystemInfo(&si);
 		minAddr = (ULONG_PTR)si.lpMinimumApplicationAddress;
 		maxAddr = (ULONG_PTR)si.lpMaximumApplicationAddress;
 
-		if ((ULONG_PTR)origin > MAX_MEMORY_RANGE &&
-			minAddr < (ULONG_PTR)origin - MAX_MEMORY_RANGE)
+		
+		// origin ± 512MB
+		if ((ULONG_PTR)origin > MAX_MEMORY_RANGE && minAddr < (ULONG_PTR)origin - MAX_MEMORY_RANGE)
 			minAddr = (ULONG_PTR)origin - MAX_MEMORY_RANGE;
 
 		if (maxAddr > (ULONG_PTR)origin + MAX_MEMORY_RANGE)
-			maxAddr = (ULONG_PTR)origin + MAX_MEMORY_RANGE;
+			maxAddr = (ULONG_PTR)origin + MAX_MEMORY_RANGE; 
+		
+		auto start = AlignUp(minAddr, si.dwAllocationGranularity);
+		auto end = AlignDown(maxAddr, si.dwAllocationGranularity);
 
-		LPVOID pAlloc = origin;
+		addressReqs.Alignment = NULL; // any alignment
+		addressReqs.LowestStartingAddress = (PVOID)start < si.lpMinimumApplicationAddress ? si.lpMinimumApplicationAddress : (PVOID)start;
+		addressReqs.HighestEndingAddress = (PVOID)(end - 1) > si.lpMaximumApplicationAddress ? si.lpMaximumApplicationAddress : (PVOID)(end - 1);
+
+		param.Type = MemExtendedParameterAddressRequirements;
+		param.Pointer = &addressReqs;
+
+		//using VirtualAlloc2 throws linker error gotta either use this workaround or use #pragma comment(lib, "mincore") to get it to work
+		auto pVirtualAlloc2 = (decltype(&::VirtualAlloc2))GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "VirtualAlloc2");
 
 		void* stub = nullptr;
-		while ((ULONG_PTR)pAlloc >= minAddr)
-		{
-			pAlloc = FindPrevFreeRegion(pAlloc, (LPVOID)minAddr, si.dwAllocationGranularity);
-			if (pAlloc == NULL)
-				break;
 
-			stub = VirtualAlloc(pAlloc, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-			if (stub != NULL)
-				break;
-		}
+		stub = pVirtualAlloc2(GetCurrentProcess(), nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE, &param, 1);
 
 		return stub;
 	}

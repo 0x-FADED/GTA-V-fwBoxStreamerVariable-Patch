@@ -25,18 +25,18 @@ struct DecalDef
 	char pad[80];
 };
 
-int kNumDecalDefsSize;
-int fwBoxStreamerVariableSize;
+int kNumDecalDefsSize = 0;
+int fwBoxStreamerVariableSize = 0;
 
-static void* decalDefStore;
+static void* decalDefStore = nullptr;
 
 
 void TomlShit()
 {
-	kNumDecalDefsSize = GetPrivateProfileInt("DecalLimitPatcher", "DecalDefs", -1, ".\\fwBoxStreamerVariable_DecalsLimit-Patch.toml");
+	kNumDecalDefsSize = GetPrivateProfileInt(L"DecalLimitPatcher", L"DecalDefs", -1, L".\\fwBoxStreamerVariable_DecalsLimit-Patch.toml");
 	kNumDecalDefsSize = kNumDecalDefsSize <= 0 ? 0x420 : kNumDecalDefsSize;
 
-	fwBoxStreamerVariableSize = GetPrivateProfileInt("fwBoxStreamerVariableSizePatcher", "fwBoxStreamerVariableSize", -1, ".\\fwBoxStreamerVariable_DecalsLimit-Patch.toml");
+	fwBoxStreamerVariableSize = GetPrivateProfileInt(L"fwBoxStreamerVariableSizePatcher", L"fwBoxStreamerVariableSize", -1, L".\\fwBoxStreamerVariable_DecalsLimit-Patch.toml");
 	fwBoxStreamerVariableSize = fwBoxStreamerVariableSize <= 0 ? 0x204B0 : fwBoxStreamerVariableSize;
 }
 
@@ -141,14 +141,14 @@ void fwBoxStreamerVariablePatch()
 	auto mnbvhList = hook::AllocateStubMemory(sizeof(void*) * fwBoxStreamerVariableSize);
 
 	{
-		// GetIntersectingAABB
+		// rage::fwBoxStreamerVariable::GetIntersectingAABB
 		auto location = hook::get_pattern<char>("0F 28 0A 48 8B 49 08 4C 8D 25", 10);
 		hook::put<int32_t>(location, (char*)mnbvhList - location + 4);
 		hook::put<int32_t>(location + 31, fwBoxStreamerVariableSize);
 	}
 
 	{
-		// GetIntersectingLine
+		// rage::fwBoxStreamerVariable::GetIntersectingLine
 		auto location = hook::get_pattern<char>("48 8B 49 08 4C 8D 3D", 7);
 		hook::put<int32_t>(location, (char*)mnbvhList - location + 4);
 		hook::put<int32_t>(location + 8, fwBoxStreamerVariableSize);
